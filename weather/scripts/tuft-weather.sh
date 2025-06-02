@@ -1,12 +1,18 @@
 #!/bin/bash
 
 input="$1"
-TOP=$(git rev-parse --show-toplevel)
-eval_dir="$TOP/weather"
+REPO_TOP=$(git rev-parse --show-toplevel)
+eval_dir="$REPO_TOP/tuft-weather"
 scripts_dir="$eval_dir/scripts"
 
+max_jobs=$(nproc)
+sem(){
+    while [ "$(jobs -rp | wc -l)" -ge "$max_jobs" ]; do sleep 0.1; done
+}
 awk -F '\t' '{print $6}' "$input" | sort -u |
 while IFS= read -r city; do
+    sem
+    (
     safe=$(printf '%s' "$city" | tr ' /' '__') 
     tmp_dir="plots/tmp/$safe"
     mkdir -p "plots/$safe" "$tmp_dir"
@@ -66,4 +72,7 @@ while IFS= read -r city; do
 
         rm -f "$yr_txt" "$max_y" "$min_y" "$j1" "$j2"
     done
+    ) &
 done
+
+wait

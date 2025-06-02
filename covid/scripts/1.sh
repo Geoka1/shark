@@ -1,24 +1,12 @@
 #!/bin/bash
 # Vehicles on the road per day
 
-# Using GNU parallel:
+sed 's/T..:..:..//' "$1" |        # hide times directly from the input file
+  cut -d ',' -f 1,3 |             # keep only day and bus no
+  sort -u |                       # remove duplicate records
+  cut -d ',' -f 1 |               # keep all dates
+  sort |                          # prepare for uniq
+  uniq -c |                       # count unique dates
+  awk '{print $2, $1}'            # print date first, then count
 
-INPUT="$1"
-MAX_PROCS=${MAX_PROCS:-$(nproc)}
-chunk_size=${chunk_size:-100M}
-process_chunk() {
-  sed 's/T..:..:..//'|
-  cut -d ',' -f 1,3
-}
-export -f process_chunk
-
-tmp_dir=$(mktemp -d)
-trap "rm -rf $tmp_dir" EXIT  
-
-cat "$INPUT" | parallel --pipe --block "$chunk_size" -j "$MAX_PROCS" process_chunk > "$tmp_dir/combined.tmp"
-
-sort -u "$tmp_dir/combined.tmp" |
-  cut -d ',' -f 1 |               
-  sort |                          
-  uniq -c |                       
-  awk '{print $2,$1}'             
+# diff out{1,}
