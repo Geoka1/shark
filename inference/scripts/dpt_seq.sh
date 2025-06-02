@@ -34,7 +34,7 @@ for img in "$IMG_DIR"/*.png; do
     process_image "$img" >> "$OUT" &
     ((++job_count))
 
-    if (( job_count >= MAX_PROCS )); then
+    if (( job_count >= 4 )); then
         wait -n
         ((--job_count))
     fi

@@ -33,7 +33,7 @@ for dir_path in "$IN"/*; do
   ) &                                   # ── background worker
 
   ((jobs_running++))
-  if (( jobs_running >= MAX_JOBS )); then
+  if (( jobs_running >= 4 )); then
     wait -n                             # free one slot
     ((jobs_running--))
   fi
