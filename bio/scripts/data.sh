@@ -194,33 +194,44 @@ cat fantom5/HeLa.rep3.hg38.ctss_chr.bed | sed 's/^chrM/MT/g' | sed 's/^chr//g' |
 echo ">>> GET NET-CAGE SIGNALS <<<"
 
 # Convert to hg19 to hg38
-for gz in NET-CAGE/*.bed.gz; do
-    base=${gz%.bed.gz}
+threads=4
+max_jobs=4
+current_jobs=0
 
+for gz in NET-CAGE/*.bed.gz; do
+  (
+    base=${gz%.bed.gz}
     fifo=$(mktemp -u)
     mkfifo "$fifo"
-    ( gunzip -c "$gz" >"$fifo" ) &
 
-  #liftOver \
-   # <(gunzip -c "$gz") \ 
+    (gunzip -c "$gz" > "$fifo") &
+
     liftOver "$fifo" \
-    hg19ToHg38.over.chain.gz \
-    "${base}.hg38.ctss_chr.raw.bed" \
-    "${base}.hg38.unmap.ctss_chr.bed"
+      hg19ToHg38.over.chain.gz \
+      "${base}.hg38.ctss_chr.raw.bed" \
+      "${base}.hg38.unmap.ctss_chr.bed"
 
-  sort -k1,1 -k2,2n --parallel=$threads "${base}.hg38.ctss_chr.raw.bed" |
-    sed \
-      -e 's/^chrM/MT/' \
-      -e 's/^chr//' \
-      -e 's/14_GL000009v2_random/GL000009.2/' \
-      -e 's/1_KI270706v1_random/KI270706.1/' \
-      -e 's/Un_KI270742v1/KI270742.1/' |
-    sort -k1,1 -k2,2n --parallel=$threads \
-    > "${base}.hg38.ctss_chr.bed"
+    rm "$fifo"
 
-  rm "${base}.hg38.ctss_chr.raw.bed"
+    sort -k1,1 -k2,2n --parallel="$threads" "${base}.hg38.ctss_chr.raw.bed" |
+      sed \
+        -e 's/^chrM/MT/' \
+        -e 's/^chr//' \
+        -e 's/14_GL000009v2_random/GL000009.2/' \
+        -e 's/1_KI270706v1_random/KI270706.1/' \
+        -e 's/Un_KI270742v1/KI270742.1/' |
+      sort -k1,1 -k2,2n --parallel="$threads" \
+      > "${base}.hg38.ctss_chr.bed"
+  ) &
+
+  current_jobs=$((current_jobs + 1))
+  if [[ "$current_jobs" -ge "$max_jobs" ]]; then
+    wait -n  # Wait for any job to finish before starting a new one
+    current_jobs=$((current_jobs - 1))
+  fi
 done
 
+wait  
 #cat meth/encodeCcreHela.bed | cut -f 10 | sort | uniq -c
 #  20023 CTCF-only,CTCF-bound
 #  31295 dELS
@@ -322,7 +333,7 @@ gmap -d genome -D gmap-2019-09-12 ../silva/ribosomal.mmu.fa -t $threads \
 gff2gtf-gmap ribosomal.mmu.gmap.gff3 | sed "s/\tgmapidx\t/\tsilva\t/g" | sed "s/;$/; gene_biotype \"rRNA\"; transcript_biotype \"rRNA\";/g" \
     | sort -k1,1 -k4,4n > ribosomal.mmu.gmap.gtf # Convert GMAP gff3 to gtf
 
-cat ensembl_genes.gtf | grep -v " \"rRNA\";" > ensembl_genes.gtf.tmp # Remove annotated rRNA from Ensembl but keep ribosomal - SILVA rRNA db doesn't annotate those
+grep -v " \"rRNA\";" ensembl_genes.gtf  > ensembl_genes.gtf.tmp # Remove annotated rRNA from Ensembl but keep ribosomal - SILVA rRNA db doesn't annotate those
 cat ensembl_genes.gtf.tmp ribosomal.mmu.gmap.gtf > ensembl_genes.gtf.tmp2
 (grep "^#" ensembl_genes.gtf.tmp2; grep -v "^#" ensembl_genes.gtf.tmp2 | sort -k1,1 -k4,4n) > ensembl_genes.gtf # Add SILVA rRNA to Ensembl
 rm ensembl_genes.gtf.tmp ensembl_genes.gtf.tmp2
