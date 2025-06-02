@@ -13,7 +13,8 @@ log "Running kick tires script"
 #   echo "You need to have sudo privileges or be the root user to run this script (package installations will be required)."
 #   exit 1
 # fi
-
+export jobs=$(nproc)
+export MAX_PROCS=${MAX_PROCS:-$jobs}
 log "Running ./main.sh for each benchmark"
 
 # Run ./main.sh for each benchmark

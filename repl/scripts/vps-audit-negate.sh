@@ -10,7 +10,6 @@ BOLD='\033[1m'
 NC='\033[0m' # No Color
 
 # Get current timestamp for the report filename
-TIMESTAMP=$(date +"%Y%m%d_%H%M%S")
 REPORT_FILE="vps-audit-negate-report.txt"
 
 print_header() {
@@ -75,7 +74,6 @@ check_security() {
     local test_name="$1"
     local status="$2"
     local message="$3"
-    
     case $status in
         "PASS")
             echo -e "${GREEN}[PASS]${NC} $test_name ${GRAY}- $message${NC}"
@@ -101,14 +99,15 @@ echo "Current uptime: $UPTIME" >> "$REPORT_FILE"
 echo "System up since: $UPTIME_SINCE" >> "$REPORT_FILE"
 echo "" >> "$REPORT_FILE"
 echo -e "System Uptime: $UPTIME (since $UPTIME_SINCE)"
-
+{
 # Check if system requires restart
 if [ ! -f /var/run/reboot-required ]; then
     check_security "System Restart" "PASS" "No restart required"
 else
     check_security "System Restart" "WARN" "System requires a restart to apply updates"
 fi
-
+} &
+{
 # Check SSH config overrides
 SSH_CONFIG_OVERRIDES=$(grep "^Include" /etc/ssh/sshd_config 2>/dev/null | awk '{print $2}')
 
@@ -123,7 +122,8 @@ if [ -z "$SSH_ROOT" ] || [ "$SSH_ROOT" != "no" ]; then
 else
     check_security "SSH Root Login" "PASS" "Root login is properly disabled in SSH configuration"
 fi
-
+} &
+{
 # Check SSH password authentication (handle both main config and overrides if they exist)
 if [ ! -n "$SSH_CONFIG_OVERRIDES" ] || [ ! -d "$(dirname "$SSH_CONFIG_OVERRIDES")" ]; then
     SSH_PASSWORD=$(grep "^PasswordAuthentication" /etc/ssh/sshd_config 2>/dev/null | head -1 | awk '{print $2}')
@@ -135,7 +135,8 @@ if [ -z "$SSH_PASSWORD" ] || [ "$SSH_PASSWORD" != "no" ]; then
 else
     check_security "SSH Password Auth" "PASS" "Password authentication is disabled, key-based auth only"
 fi
-
+} &
+{
 # Check SSH default port
 UNPRIVILEGED_PORT_START=$(sysctl -n net.ipv4.ip_unprivileged_port_start)
 SSH_PORT=""
@@ -151,54 +152,28 @@ elif [ "$SSH_PORT" -ge "$UNPRIVILEGED_PORT_START" ]; then
 else
     check_security "SSH Port" "PASS" "Using non-default port $SSH_PORT which helps prevent automated attacks"
 fi
-
-# Check Firewall Status
-# check_firewall_status() {
-#     if command -v ufw >/dev/null 2>&1; then
-#         if ! ufw status | grep -q "active"; then
-#             check_security "Firewall Status (UFW)" "FAIL" "UFW firewall is not active - your system is exposed to network attacks"
-#         else
-#             check_security "Firewall Status (UFW)" "PASS" "UFW firewall is active and protecting your system"
-#         fi
-#     elif command -v firewall-cmd >/dev/null 2>&1; then
-#         if ! firewall-cmd --state 2>/dev/null | grep -q "running"; then
-#             check_security "Firewall Status (firewalld)" "FAIL" "Firewalld is not active - your system is exposed to network attacks"
-#         else
-#             check_security "Firewall Status (firewalld)" "PASS" "Firewalld is active and protecting your system"
-#         fi
-#     elif command -v nft >/dev/null 2>&1; then
-#         if ! nft list ruleset | grep -q "table"; then
-#             check_security "Firewall Status (nftables)" "FAIL" "No active nftables rules found - your system may be exposed"
-#         else
-#             check_security "Firewall Status (nftables)" "PASS" "nftables rules are active and protecting your system"
-#         fi
-#     else
-#         check_security "Firewall Status" "FAIL" "No recognized firewall tool is installed on this system"
-#     fi
-# }
-
-
-# Firewall check
-# check_firewall_status
-
+} &
+{
 # Check for unattended upgrades
 if ! dpkg -l | grep -q "unattended-upgrades"; then
     check_security "Unattended Upgrades" "FAIL" "Automatic security updates are not configured - system may miss critical updates"
 else
     check_security "Unattended Upgrades" "PASS" "Automatic security updates are configured"
 fi
-
+} &
+{
 # Check fail2ban
 if ! dpkg -l | grep -q "fail2ban"; then
     check_security "Fail2ban" "FAIL" "No brute force protection installed - system is vulnerable to login attacks"
-else 
+else
     if ! pgrep -x "fail2ban-server" >/dev/null 2>&1; then
         check_security "Fail2ban" "WARN" "Fail2ban is installed but not running - brute force protection is disabled"
     else
         check_security "Fail2ban" "PASS" "Brute force protection is active and running"
     fi
 fi
-
+} &
+{
 # Check failed login attempts
 FAILED_LOGINS=$(grep "Failed password" /var/log/auth.log 2>/dev/null | wc -l)
 if [ "$FAILED_LOGINS" -lt 10 ]; then
@@ -208,7 +183,8 @@ elif [ "$FAILED_LOGINS" -lt 50 ]; then
 else
     check_security "Failed Logins" "FAIL" "$FAILED_LOGINS failed login attempts detected - possible brute force attack in progress"
 fi
-
+} &
+{
 # Check system updates
 UPDATES=$(apt-get -s upgrade 2>/dev/null | grep -P '^\d+ upgraded' | cut -d" " -f1)
 if [ "$UPDATES" -gt 0 ]; then
@@ -216,7 +192,8 @@ if [ "$UPDATES" -gt 0 ]; then
 else
     check_security "System Updates" "PASS" "All system packages are up to date"
 fi
-
+} &
+{
 # Check running services
 SERVICES=$(ps --no-headers -eo cmd | wc -l)
 if [ "$SERVICES" -ge 40 ]; then
@@ -226,7 +203,8 @@ elif [ "$SERVICES" -ge 20 ]; then
 else
     check_security "Running Services" "PASS" "Running minimal services ($SERVICES) - good for security"
 fi
-
+} &
+{
 # Check ports using netstat or ss
 if ! command -v netstat >/dev/null 2>&1; then
     if ! command -v ss >/dev/null 2>&1; then
@@ -238,7 +216,8 @@ if ! command -v netstat >/dev/null 2>&1; then
 else
     LISTENING_PORTS=$(netstat -tuln | grep LISTEN | awk '{print $4}')
 fi
-
+} &
+{
 # Process LISTENING_PORTS to extract unique public ports
 if [ -z "$LISTENING_PORTS" ]; then
     check_security "Port Scanning" "WARN" "Port scanning failed due to missing tools. Ensure 'ss' or 'netstat' is installed."
@@ -257,13 +236,13 @@ else
         check_security "Port Security" "PASS" "Good configuration (Total: $PORT_COUNT, Public: $INTERNET_PORTS accessible ports): $PUBLIC_PORTS"
     fi
 fi
-
+} &
 # Function to format the message with proper indentation for the report file
 format_for_report() {
     local message="$1"
     echo "$message" >> "$REPORT_FILE"
 }
-
+{
 # Check disk space usage
 DISK_TOTAL=$(df -h / | awk 'NR==2 {print $2}')
 DISK_USED=$(df -h / | awk 'NR==2 {print $3}')
@@ -278,7 +257,8 @@ if [ "$DISK_USAGE" -ge 50 ]; then
 else
     check_security "Disk Usage" "PASS" "Healthy disk space available (${DISK_USAGE}% used - Used: ${DISK_USED} of ${DISK_TOTAL}, Available: ${DISK_AVAIL})"
 fi
-
+} &
+{
 # Check memory usage
 MEM_TOTAL=$(free -h | awk '/^Mem:/ {print $2}')
 MEM_USED=$(free -h | awk '/^Mem:/ {print $3}')
@@ -293,7 +273,8 @@ if [ "$MEM_USAGE" -ge 50 ]; then
 else
     check_security "Memory Usage" "PASS" "Healthy memory usage (${MEM_USAGE}% used - Used: ${MEM_USED} of ${MEM_TOTAL}, Available: ${MEM_AVAIL})"
 fi
-
+} &
+{
 # Check CPU usage
 CPU_CORES=$(nproc)
 CPU_USAGE=$(top -bn1 | grep "Cpu(s)" | awk '{print int($2)}')
@@ -308,14 +289,8 @@ if [ "$CPU_USAGE" -ge 50 ]; then
 else
     check_security "CPU Usage" "PASS" "Healthy CPU usage (${CPU_USAGE}% used - Active: ${CPU_USAGE}%, Idle: ${CPU_IDLE}%, Load: ${CPU_LOAD}, Cores: ${CPU_CORES})"
 fi
-
-# Check sudo configuration
-# if ! grep -q "^Defaults.*logfile" /etc/sudoers; then
-#     check_security "Sudo Logging" "FAIL" "Sudo commands are not being logged - reduces audit capability"
-# else
-#     check_security "Sudo Logging" "PASS" "Sudo commands are being logged for audit purposes"
-# fi
-
+} &
+{
 # Check password policy
 if ! [ -f "/etc/security/pwquality.conf" ]; then
     check_security "Password Policy" "FAIL" "No password policy configured - system accepts weak passwords"
@@ -326,7 +301,8 @@ else
         check_security "Password Policy" "PASS" "Strong password policy is enforced"
     fi
 fi
-
+} &
+{
 # Check for suspicious SUID files
 COMMON_SUID_PATHS='^/usr/bin/|^/bin/|^/sbin/|^/usr/sbin/|^/usr/lib|^/usr/libexec'
 KNOWN_SUID_BINS='ping$|sudo$|mount$|umount$|su$|passwd$|chsh$|newgrp$|gpasswd$|chfn$'
@@ -343,7 +319,9 @@ if [ "$SUID_FILES" -ne 0 ]; then
 else
     check_security "SUID Files" "PASS" "No suspicious SUID files found - good security practice"
 fi
+} &
 
+wait
 # Add system information summary to report
 echo "================================" >> "$REPORT_FILE"
 echo "System Information Summary:" >> "$REPORT_FILE"

@@ -5,14 +5,16 @@
 # Overwrite HOME variable
 export HOME="$1"
 
-mkdir -p $2
 
-pure_func () {
-     convert -resize 70% "-" "-"
+mkdir -p "$2"
+
+pure_func() {
+    convert -resize 70% "$1" "$2"
 }
 export -f pure_func
 
 for i in ~/*; do
     out="$2/$(basename -- "$i")"
-    cat "$i" | pure_func > "$out"
+    pure_func "$i" "$out" &
 done
+wait

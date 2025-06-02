@@ -1,24 +1,21 @@
 #!/bin/bash
 
-mkdir -p $2
-pure_func() {
-    tempfile=$(mktemp)
-    cat > $tempfile
-    # extract DNS queries
-    tcpdump -nn -r $tempfile -A 'port 53' 2> /dev/null | sort | uniq |grep -Ev '(com|net|org|gov|mil|arpa)' 2> /dev/null
-    # extract URL
-    tcpdump -nn -r $tempfile -s 0 -v -n -l 2> /dev/null | egrep -i "POST /|GET /|Host:" 2> /dev/null
-    # extract passwords
-    tcpdump -nn -r $tempfile -s 0 -A -n -l 2> /dev/null | egrep -i "POST /|pwd=|passwd=|password=|Host:" 2> /dev/null
-    # extract telnet login/password
-    tcpdump -nn -r $tempfile -s 0 -A -n -l 'port 23' 2> /dev/null | egrep -i "login:|password:" 2> /dev/null
+mkdir -p "$2"
 
-    rm -f $tempfile
+pure_func() {
+    tcpdump -nn -r /dev/stdin -A 'port 53' 2> /dev/null | sort | uniq | grep -Ev '(com|net|org|gov|mil|arpa)' 2> /dev/null
+    # Extract URL
+    tcpdump -nn -r /dev/stdin -s 0 -v -n -l 2> /dev/null | egrep -i "POST /|GET /|Host:" 2> /dev/null
+    # Extract passwords
+    tcpdump -nn -r /dev/stdin -s 0 -A -n -l 2> /dev/null | egrep -i "POST /|pwd=|passwd=|password=|Host:" 2> /dev/null
+
+    tcpdump -nn -r /dev/stdin -s 0 -A -n -l 'port 23' 2> /dev/null | egrep -i "login:|password:" 2> /dev/null
+
 }
 export -f pure_func
 
-for item in $1/*;
-do
-    logname=$2/$(basename $item).log;
-    cat $item | pure_func > $logname
+for item in "$1"/*; do
+    logname="$2/$(basename "$item").log"
+    pure_func < "$item" > "$logname" &
 done
+wait

@@ -26,64 +26,27 @@ cd "$REPO_PATH" || exit 1
 g config user.email "author@example.com"
 g config user.name "A U Thor"
 
+mapfile -t COMMITS < <(
+  g rev-list --first-parent HEAD -n "$NUM_COMMITS" | tac
+)
+BASE_COMMIT=${COMMITS[0]}
+
 g stash
 gco main
-g branch -D bench_branch 2>/dev/null || true
+g branch -D bench_branch "$BASE_COMMIT"
 gco -b bench_branch 644ae58
 grs
 gcl
 
-commit_file=~/commit_list.txt
-g rev-list --first-parent HEAD -n "$NUM_COMMITS" | tac > "$commit_file"
+prev="$BASE_COMMIT"
 
-base_commit=$(head -n 1 "$commit_file")
-echo "$base_commit" > ~/base_commit.txt
-
-num_patches=$((NUM_COMMITS - 1))
-read -r base_commit < "$commit_file"
-prev_commit="$base_commit"
-i=1
-
-tail -n +2 "$commit_file" | while read -r curr_commit; do
-    patch_upper=$((num_patches - i + 1))
-    patch_lower=$((patch_upper - 1))
-    
-    patchfile=~/${patch_upper}-${patch_lower}.diff
-    commitmsg=~/${patch_upper}-${patch_lower}.commit
-    
-    g diff "$prev_commit" "$curr_commit" > "$patchfile"
-    g log -1 --pretty=%B "$curr_commit" > "$commitmsg"
-    
-    prev_commit="$curr_commit"
-    i=$((i + 1))
+for curr in "${COMMITS[@]:1}"; do
+  if patch=$(g diff "$prev" "$curr"); [[ -n $patch ]]; then
+    printf '%s\n' "$patch" | g apply -    
+    g add -A                            
+    g commit \
+      --author="A U Thor <author@example.com>" \
+      -m "$(g log -1 --pretty=%B "$curr")"   
+  fi
+  prev="$curr"
 done
-
-gst
-
-if [ -f ~/base_commit.txt ]; then
-    git checkout bench_branch
-    git reset --hard "$(cat ~/base_commit.txt)"
-else
-    echo "Missing base_commit.txt"
-    exit 1
-fi
-
-for i in $(seq "$num_patches" -1 1); do
-    lower=$(( i - 1 ))
-    patchfile=~/${i}-${lower}.diff
-    commitmsg=~/${i}-${lower}.commit
-    
-    if [ -s "$patchfile" ]; then
-        #patch -p1 < "$patchfile" || { echo "Failed to apply $patchfile"; exit 1; }
-        g apply "$patchfile" || { echo "Failed to apply $patchfile"; exit 1; }
-
-        gst
-
-        gaa
-        gci --author="A U Thor <author@example.com>" -F "$commitmsg" || { echo "Failed to commit with $commitmsg"; exit 1; }
-    else
-        echo "Patch file $patchfile is empty, skipping commit."
-    fi
-done
-
-gst

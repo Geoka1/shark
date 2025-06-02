@@ -5,15 +5,10 @@
 
 mkfifo s1 s2
 
-cat $1 |
-  # shuf |
-  tr "[:lower:]" "[:upper:]" |
-  sort > s1 &
+< "$1" tr "[:lower:]" "[:upper:]" | sort > s1 &
 
-cat $1 |
-  # shuf |
-  tr "[:upper:]" "[:lower:]" |
-  sort > s2 &
+< "$1" tr "[:upper:]" "[:lower:]" | sort > s2 &
 
 diff -B s1 s2
+
 rm s1 s2

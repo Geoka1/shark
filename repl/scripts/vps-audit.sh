@@ -41,13 +41,25 @@ echo "================================" >> "$REPORT_FILE"
 print_header "System Information"
 
 # Get system information
-OS_INFO=$(cat /etc/os-release | grep PRETTY_NAME | cut -d'"' -f2)
+# OS_INFO=$(cat /etc/os-release | grep PRETTY_NAME | cut -d'"' -f2)
+# KERNEL_VERSION=$(uname -r)
+# HOSTNAME=$(hostname)
+# UPTIME=$(uptime -p)
+# UPTIME_SINCE=$(uptime -s)
+# CPU_INFO=$(lscpu | grep "Model name" | cut -d':' -f2 | xargs)
+# CPU_CORES=$(nproc)
+# TOTAL_MEM=$(free -h | awk '/^Mem:/ {print $2}')
+# TOTAL_DISK=$(df -h / | awk 'NR==2 {print $2}')
+# PUBLIC_IP=$(curl -s https://api.ipify.org)
+# LOAD_AVERAGE=$(uptime | awk -F'load average:' '{print $2}' | xargs)
+
+OS_INFO=$(grep PRETTY_NAME /etc/os-release | cut -d'"' -f2)
 KERNEL_VERSION=$(uname -r)
 HOSTNAME=$(hostname)
 UPTIME=$(uptime -p)
 UPTIME_SINCE=$(uptime -s)
 CPU_INFO=$(lscpu | grep "Model name" | cut -d':' -f2 | xargs)
-CPU_CORES=$(nproc)
+CPU_CORES=$(nproc) &
 TOTAL_MEM=$(free -h | awk '/^Mem:/ {print $2}')
 TOTAL_DISK=$(df -h / | awk 'NR==2 {print $2}')
 PUBLIC_IP=$(curl -s https://api.ipify.org)
@@ -72,9 +84,9 @@ print_header "Security Audit Results"
 
 # Function to check and report with three states
 check_security() {
-    local test_name="$1"
-    local status="$2"
-    local message="$3"
+    test_name="$1"
+    status="$2"
+    message="$3"
     
     case $status in
         "PASS")
@@ -102,16 +114,18 @@ echo "System up since: $UPTIME_SINCE" >> "$REPORT_FILE"
 echo "" >> "$REPORT_FILE"
 echo -e "System Uptime: $UPTIME (since $UPTIME_SINCE)"
 
+{
 # Check if system requires restart
 if [ -f /var/run/reboot-required ]; then
     check_security "System Restart" "WARN" "System requires a restart to apply updates"
 else
     check_security "System Restart" "PASS" "No restart required"
 fi
-
+} &
 # Check SSH config overrides
 SSH_CONFIG_OVERRIDES=$(grep "^Include" /etc/ssh/sshd_config 2>/dev/null | awk '{print $2}')
 
+{
 # Check SSH root login (handle both main config and overrides if they exist)
 if [ -n "$SSH_CONFIG_OVERRIDES" ] && [ -d "$(dirname "$SSH_CONFIG_OVERRIDES")" ]; then
     SSH_ROOT=$(grep "^PermitRootLogin" $SSH_CONFIG_OVERRIDES /etc/ssh/sshd_config 2>/dev/null | head -1 | awk '{print $2}')
@@ -126,7 +140,8 @@ if [ "$SSH_ROOT" = "no" ]; then
 else
     check_security "SSH Root Login" "FAIL" "Root login is currently allowed - this is a security risk. Disable it in /etc/ssh/sshd_config"
 fi
-
+} &
+{
 # Check SSH password authentication (handle both main config and overrides if they exist)
 if [ -n "$SSH_CONFIG_OVERRIDES" ] && [ -d "$(dirname "$SSH_CONFIG_OVERRIDES")" ]; then
     SSH_PASSWORD=$(grep "^PasswordAuthentication" $SSH_CONFIG_OVERRIDES /etc/ssh/sshd_config 2>/dev/null | head -1 | awk '{print $2}')
@@ -141,7 +156,8 @@ if [ "$SSH_PASSWORD" = "no" ]; then
 else
     check_security "SSH Password Auth" "FAIL" "Password authentication is enabled - consider using key-based authentication only"
 fi
-
+} &
+{
 # Check SSH default port
 UNPRIVILEGED_PORT_START=$(sysctl -n net.ipv4.ip_unprivileged_port_start)
 SSH_PORT=""
@@ -160,53 +176,29 @@ elif [ "$SSH_PORT" -ge "$UNPRIVILEGED_PORT_START" ]; then
 else
     check_security "SSH Port" "PASS" "Using non-default port $SSH_PORT which helps prevent automated attacks"
 fi
+} &
 
-# Check Firewall Status
-# check_firewall_status() {
-#     if command -v ufw >/dev/null 2>&1; then
-#         if ufw status | grep -q "active"; then
-#             check_security "Firewall Status (UFW)" "PASS" "UFW firewall is active and protecting your system"
-#         else
-#             check_security "Firewall Status (UFW)" "FAIL" "UFW firewall is not active - your system is exposed to network attacks"
-#         fi
-#     elif command -v firewall-cmd >/dev/null 2>&1; then
-#         if firewall-cmd --state 2>/dev/null | grep -q "running"; then
-#             check_security "Firewall Status (firewalld)" "PASS" "Firewalld is active and protecting your system"
-#         else
-#             check_security "Firewall Status (firewalld)" "FAIL" "Firewalld is not active - your system is exposed to network attacks"
-#         fi
-#     elif command -v nft >/dev/null 2>&1; then
-#         if nft list ruleset | grep -q "table"; then
-#             check_security "Firewall Status (nftables)" "PASS" "nftables rules are active and protecting your system"
-#         else
-#             check_security "Firewall Status (nftables)" "FAIL" "No active nftables rules found - your system may be exposed"
-#         fi
-#     else
-#         check_security "Firewall Status" "FAIL" "No recognized firewall tool is installed on this system"
-#     fi
-# }
-
-# Firewall check
-# check_firewall_status
-
+{
 # Check for unattended upgrades
 if dpkg -l | grep -q "unattended-upgrades"; then
     check_security "Unattended Upgrades" "PASS" "Automatic security updates are configured"
 else
     check_security "Unattended Upgrades" "FAIL" "Automatic security updates are not configured - system may miss critical updates"
 fi
-
+} &
+{
 # Check fail2ban
 if dpkg -l | grep -q "fail2ban"; then
     if ! pgrep -x "fail2ban-server" >/dev/null 2>&1; then
-        check_security "Fail2ban" "WARN" "Fail2ban is installed but not running - brute force protection is disabled"
-    else
         check_security "Fail2ban" "PASS" "Brute force protection is active and running"
+    else
+        check_security "Fail2ban" "WARN" "Fail2ban is installed but not running - brute force protection is disabled"
     fi
 else
     check_security "Fail2ban" "FAIL" "No brute force protection installed - system is vulnerable to login attacks"
 fi
-
+} &
+{
 # Check failed login attempts
 FAILED_LOGINS=$(grep "Failed password" /var/log/auth.log 2>/dev/null | wc -l)
 if [ "$FAILED_LOGINS" -lt 10 ]; then
@@ -216,7 +208,8 @@ elif [ "$FAILED_LOGINS" -lt 50 ]; then
 else
     check_security "Failed Logins" "FAIL" "$FAILED_LOGINS failed login attempts detected - possible brute force attack in progress"
 fi
-
+} &
+{
 # Check system updates
 UPDATES=$(apt-get -s upgrade 2>/dev/null | grep -P '^\d+ upgraded' | cut -d" " -f1)
 if [ "$UPDATES" -eq 0 ]; then
@@ -224,7 +217,8 @@ if [ "$UPDATES" -eq 0 ]; then
 else
     check_security "System Updates" "FAIL" "$UPDATES security updates available - system is vulnerable to known exploits"
 fi
-
+} &
+{
 # Check running services
 SERVICES=$(ps --no-headers -eo cmd | wc -l)
 
@@ -235,7 +229,8 @@ elif [ "$SERVICES" -lt 40 ]; then
 else
     check_security "Running Services" "FAIL" "Too many services running ($SERVICES) - increases attack surface"
 fi
-
+} &
+{
 # Check ports using netstat or ss
 if command -v netstat >/dev/null 2>&1; then
     LISTENING_PORTS=$(netstat -tuln | grep LISTEN | awk '{print $4}')
@@ -245,7 +240,8 @@ else
     check_security "Port Scanning" "FAIL" "Neither 'netstat' nor 'ss' is available on this system."
     LISTENING_PORTS=""
 fi
-
+} &
+{
 # Process LISTENING_PORTS to extract unique public ports
 if [ -n "$LISTENING_PORTS" ]; then
     PUBLIC_PORTS=$(echo "$LISTENING_PORTS" | awk -F':' '{print $NF}' | sort -n | uniq | tr '\n' ',' | sed 's/,$//')
@@ -262,13 +258,14 @@ if [ -n "$LISTENING_PORTS" ]; then
 else
     check_security "Port Scanning" "WARN" "Port scanning failed due to missing tools. Ensure 'ss' or 'netstat' is installed."
 fi
+} &
 
 # Function to format the message with proper indentation for the report file
 format_for_report() {
     local message="$1"
     echo "$message" >> "$REPORT_FILE"
 }
-
+{
 # Check disk space usage
 DISK_TOTAL=$(df -h / | awk 'NR==2 {print $2}')
 DISK_USED=$(df -h / | awk 'NR==2 {print $3}')
@@ -281,7 +278,8 @@ elif [ "$DISK_USAGE" -lt 80 ]; then
 else
     check_security "Disk Usage" "FAIL" "Critical disk space usage (${DISK_USAGE}% used - Used: ${DISK_USED} of ${DISK_TOTAL}, Available: ${DISK_AVAIL})"
 fi
-
+} &
+{
 # Check memory usage
 MEM_TOTAL=$(free -h | awk '/^Mem:/ {print $2}')
 MEM_USED=$(free -h | awk '/^Mem:/ {print $3}')
@@ -294,7 +292,8 @@ elif [ "$MEM_USAGE" -lt 80 ]; then
 else
     check_security "Memory Usage" "FAIL" "Critical memory usage (${MEM_USAGE}% used - Used: ${MEM_USED} of ${MEM_TOTAL}, Available: ${MEM_AVAIL})"
 fi
-
+} &
+{
 # Check CPU usage
 CPU_CORES=$(nproc)
 CPU_USAGE=$(top -bn1 | grep "Cpu(s)" | awk '{print int($2)}')
@@ -307,14 +306,8 @@ elif [ "$CPU_USAGE" -lt 80 ]; then
 else
     check_security "CPU Usage" "FAIL" "Critical CPU usage (${CPU_USAGE}% used - Active: ${CPU_USAGE}%, Idle: ${CPU_IDLE}%, Load: ${CPU_LOAD}, Cores: ${CPU_CORES})"
 fi
-
-# Check sudo configuration
-# if grep -q "^Defaults.*logfile" /etc/sudoers; then
-#     check_security "Sudo Logging" "PASS" "Sudo commands are being logged for audit purposes"
-# else
-#     check_security "Sudo Logging" "FAIL" "Sudo commands are not being logged - reduces audit capability"
-# fi
-
+} &
+{
 # Check password policy
 if [ -f "/etc/security/pwquality.conf" ]; then
     if grep -q "minlen.*12" /etc/security/pwquality.conf; then
@@ -325,7 +318,8 @@ if [ -f "/etc/security/pwquality.conf" ]; then
 else
     check_security "Password Policy" "FAIL" "No password policy configured - system accepts weak passwords"
 fi
-
+} &
+{
 # Check for suspicious SUID files
 COMMON_SUID_PATHS='^/usr/bin/|^/bin/|^/sbin/|^/usr/sbin/|^/usr/lib|^/usr/libexec'
 KNOWN_SUID_BINS='ping$|sudo$|mount$|umount$|su$|passwd$|chsh$|newgrp$|gpasswd$|chfn$'
@@ -342,7 +336,8 @@ if [ "$SUID_FILES" -eq 0 ]; then
 else
     check_security "SUID Files" "WARN" "Found $SUID_FILES SUID files outside standard locations - verify if legitimate"
 fi
-
+} &
+wait
 # Add system information summary to report
 echo "================================" >> "$REPORT_FILE"
 echo "System Information Summary:" >> "$REPORT_FILE"

@@ -1,26 +1,43 @@
-#!/bin/bash 
+#!/bin/bash
 # tag: find_anagrams.sh
-# set -e
 
 IN=${IN:-$SUITE_DIR/inputs/pg}
 OUT=${1:-$SUITE_DIR/outputs/8.3_2/}
 ENTRIES=${ENTRIES:-1000}
+MAX_PROCS=${MAX_PROCS:-$(nproc)}
 mkdir -p "$OUT"
 
 pure_func() {
     input=$1
-    TEMPDIR=$(mktemp -d)
-    sort -u > ${TEMPDIR}/${input}.types
-    rev < ${TEMPDIR}/${input}.types > ${TEMPDIR}/${input}.types.rev
-    sort ${TEMPDIR}/${input}.types ${TEMPDIR}/${input}.types.rev | uniq -c | awk "\$1 >= 2 {print \$2}"
-    rm -rf ${TEMPDIR}
-}
+    infile=$2
+    tmpfile=$(mktemp)
 
+    sort -u "$infile" > "$tmpfile"
+
+    # need a tempfile for correctness
+    rev "$tmpfile" > "${tmpfile}.rev"
+    sort "$tmpfile" "${tmpfile}.rev" | uniq -c | awk '$1 >= 2 {print $2}'
+
+    rm -f "$tmpfile" "${tmpfile}.rev"
+}
 export -f pure_func
-for input in $(ls ${IN} | head -n ${ENTRIES} | xargs -I arg1 basename arg1)
-do
-    cat $IN/$input |  tr -c 'A-Za-z' '[\n*]' | grep -v "^\s*$" | pure_func $input > ${OUT}/${input}.out
+
+job_count=0
+
+for input in $(ls "$IN" | head -n "$ENTRIES"); do
+    {
+        tmp_input=$(mktemp)
+        tr -c 'A-Za-z' '[\n*]' < "$IN/$input" | grep -v "^\s*$" > "$tmp_input"
+        pure_func "$input" "$tmp_input" > "$OUT/${input}.out"
+        rm -f "$tmp_input"
+    } &
+
+    ((job_count++))
+    if (( job_count >= MAX_PROCS )); then
+        wait -n
+        ((job_count--))
+    fi
 done
 
-echo 'done';
-# rm -rf "$OUT"
+wait
+echo 'done'

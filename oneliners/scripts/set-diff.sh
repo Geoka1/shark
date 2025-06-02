@@ -4,14 +4,9 @@
 
 mkfifo s1 s2
 
-cat $1 |
-    cut -d ' ' -f 1 |
-    tr "[:lower:]" "[:upper:]" |
-    sort > s1 &
+< "$1" cut -d ' ' -f 1 | tr "[:lower:]" "[:upper:]" | sort > s1 &
 
-cat $1 |
-    cut -d ' ' -f 1 |
-    sort > s2 &
+< "$1" cut -d ' ' -f 1 | sort > s2 &
 
 comm -23 s1 s2
 

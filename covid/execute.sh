@@ -18,6 +18,11 @@ for arg in "$@"; do
         break
     fi
 done
+file_size=$(du -b "$input_file" | awk '{print $1}')
+nproc=$(nproc)
+chunk_size=$((file_size / nproc))
+export nproc
+export chunk_size
 
 input_file="$input_dir/in$suffix.csv"
 output_scoped="$outputs_dir/outputs$suffix"

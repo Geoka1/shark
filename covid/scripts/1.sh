@@ -1,21 +1,24 @@
 #!/bin/bash
 # Vehicles on the road per day
 
-# <in.csv sed 's/T..:..:..//' |
-# awk -F, '!seen[$1 $3] {onroad[$1]++; seen[$1 $3] = 1}
-#    END { OFS = "\t"; for (d in onroad) print d, onroad[d]}' |
-# sort > out1
+# Using GNU parallel:
 
-# curl https://balab.aueb.gr/~dds/oasa-$(date --date='1 days ago' +'%y-%m-%d').bz2 |
-#   bzip2 -d |              # decompress
-# Replace the line below with the two lines above to stream the latest file
-cat "$1" |                    # assumes saved input
-  sed 's/T..:..:..//' |     # hide times
-  cut -d ',' -f 1,3 |       # keep only day and bus no
-  sort -u |                 # remove duplicate records due to time
-  cut -d ',' -f 1 |         # keep all dates
-  sort |                    # preparing for uniq
-  uniq -c |                 # count unique dates
-  awk "{print \$2,\$1}"     # print first date, then count
+INPUT="$1"
+MAX_PROCS=${MAX_PROCS:-$(nproc)}
+chunk_size=${chunk_size:-100M}
+process_chunk() {
+  sed 's/T..:..:..//'|
+  cut -d ',' -f 1,3
+}
+export -f process_chunk
 
-# diff out{1,}
+tmp_dir=$(mktemp -d)
+trap "rm -rf $tmp_dir" EXIT  
+
+cat "$INPUT" | parallel --pipe --block "$chunk_size" -j "$MAX_PROCS" process_chunk > "$tmp_dir/combined.tmp"
+
+sort -u "$tmp_dir/combined.tmp" |
+  cut -d ',' -f 1 |               
+  sort |                          
+  uniq -c |                       
+  awk '{print $2,$1}'             
