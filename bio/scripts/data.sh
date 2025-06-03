@@ -194,7 +194,6 @@ cat fantom5/HeLa.rep3.hg38.ctss_chr.bed | sed 's/^chrM/MT/g' | sed 's/^chr//g' |
 echo ">>> GET NET-CAGE SIGNALS <<<"
 
 # Convert to hg19 to hg38
-threads=4
 max_jobs=4
 current_jobs=0
 
